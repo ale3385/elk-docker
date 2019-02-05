@@ -10,11 +10,11 @@ See the [ELK Docker image documentation web page](http://elk-docker.readthedocs.
 
 ### Docker Hub
 
-This image is hosted on Docker Hub at [https://hub.docker.com/r/sebp/elk/](https://hub.docker.com/r/sebp/elk/).
+This image is hosted on Docker Hub at [https://cloud.docker.com/u/ale3385/repository/docker/ale3385/test](https://hub.docker.com/r/sebp/elk/).
 
 The following tags are available:
 
-- `latest`, `651`: ELK 6.5.1.
+- `latest`, `651`: ELK 6.6.0.
 
 - `650`: ELK 6.5.0.
 
@@ -134,4 +134,4 @@ The following tags are available:
 
 ### About
 
-Written by [Sébastien Pujadas](https://pujadas.net), released under the [Apache 2 license](https://www.apache.org/licenses/LICENSE-2.0).
+Written by [Alejandro Ramos](.), released under the [Apache 2 license](https://www.apache.org/licenses/LICENSE-2.0).
