@@ -1,24 +1,18 @@
 # Dockerfile for ELK stack
-# Elasticsearch, Logstash, Kibana 6.5.1
-
-# Build with:
-# docker build -t <repo-user>/elk .
-
-# Run with:
-# docker run -p 5601:5601 -p 9200:9200 -p 5044:5044 -it --name elk <repo-user>/elk
+# Elasticsearch, Logstash, Kibana 5.3.0
 
 FROM phusion/baseimage
-MAINTAINER Sebastien Pujadas http://pujadas.net
-ENV REFRESHED_AT 2017-02-28
+MAINTAINER Ale Ramos
+ENV REFRESHED_AT 2019-02-05
 
 
 ###############################################################################
 #                                INSTALLATION
 ###############################################################################
 
-### install prerequisites (cURL, gosu, JDK, tzdata)
+### install prerequisites (cURL, gosu, JDK)
 
-ENV GOSU_VERSION 1.10
+ENV GOSU_VERSION 1.8
 
 ARG DEBIAN_FRONTEND=noninteractive
 RUN set -x \
@@ -34,12 +28,12 @@ RUN set -x \
  && chmod +x /usr/local/bin/gosu \
  && gosu nobody true \
  && apt-get update -qq \
- && apt-get install -qqy openjdk-8-jdk tzdata \
+ && apt-get install -qqy openjdk-8-jdk \
  && apt-get clean \
  && set +x
 
 
-ENV ELK_VERSION 6.5.1
+ENV ELK_VERSION 6.6.0
 
 ### install Elasticsearch
 
@@ -48,8 +42,6 @@ ENV ES_HOME /opt/elasticsearch
 ENV ES_PACKAGE elasticsearch-${ES_VERSION}.tar.gz
 ENV ES_GID 991
 ENV ES_UID 991
-ENV ES_PATH_CONF /etc/elasticsearch
-ENV ES_PATH_BACKUP /var/backups
 
 RUN mkdir ${ES_HOME} \
  && curl -O https://artifacts.elastic.co/downloads/elasticsearch/${ES_PACKAGE} \
@@ -57,8 +49,8 @@ RUN mkdir ${ES_HOME} \
  && rm -f ${ES_PACKAGE} \
  && groupadd -r elasticsearch -g ${ES_GID} \
  && useradd -r -s /usr/sbin/nologin -M -c "Elasticsearch service user" -u ${ES_UID} -g elasticsearch elasticsearch \
- && mkdir -p /var/log/elasticsearch ${ES_PATH_CONF} ${ES_PATH_CONF}/scripts /var/lib/elasticsearch ${ES_PATH_BACKUP} \
- && chown -R elasticsearch:elasticsearch ${ES_HOME} /var/log/elasticsearch /var/lib/elasticsearch ${ES_PATH_CONF} ${ES_PATH_BACKUP}
+ && mkdir -p /var/log/elasticsearch /etc/elasticsearch /etc/elasticsearch/scripts /var/lib/elasticsearch \
+ && chown -R elasticsearch:elasticsearch ${ES_HOME} /var/log/elasticsearch /var/lib/elasticsearch
 
 ADD ./elasticsearch-init /etc/init.d/elasticsearch
 RUN sed -i -e 's#^ES_HOME=$#ES_HOME='$ES_HOME'#' /etc/init.d/elasticsearch \
@@ -72,8 +64,6 @@ ENV LOGSTASH_HOME /opt/logstash
 ENV LOGSTASH_PACKAGE logstash-${LOGSTASH_VERSION}.tar.gz
 ENV LOGSTASH_GID 992
 ENV LOGSTASH_UID 992
-ENV LOGSTASH_PATH_CONF /etc/logstash
-ENV LOGSTASH_PATH_SETTINGS ${LOGSTASH_HOME}/config
 
 RUN mkdir ${LOGSTASH_HOME} \
  && curl -O https://artifacts.elastic.co/downloads/logstash/${LOGSTASH_PACKAGE} \
@@ -81,8 +71,8 @@ RUN mkdir ${LOGSTASH_HOME} \
  && rm -f ${LOGSTASH_PACKAGE} \
  && groupadd -r logstash -g ${LOGSTASH_GID} \
  && useradd -r -s /usr/sbin/nologin -d ${LOGSTASH_HOME} -c "Logstash service user" -u ${LOGSTASH_UID} -g logstash logstash \
- && mkdir -p /var/log/logstash ${LOGSTASH_PATH_CONF}/conf.d \
- && chown -R logstash:logstash ${LOGSTASH_HOME} /var/log/logstash ${LOGSTASH_PATH_CONF}
+ && mkdir -p /var/log/logstash /etc/logstash/conf.d \
+ && chown -R logstash:logstash ${LOGSTASH_HOME} /var/log/logstash
 
 ADD ./logstash-init /etc/init.d/logstash
 RUN sed -i -e 's#^LS_HOME=$#LS_HOME='$LOGSTASH_HOME'#' /etc/init.d/logstash \
@@ -111,42 +101,39 @@ RUN sed -i -e 's#^KIBANA_HOME=$#KIBANA_HOME='$KIBANA_HOME'#' /etc/init.d/kibana 
  && chmod +x /etc/init.d/kibana
 
 
+ ### install Nginx as proxy for Kibana
+ 
+ RUN apt-get install -qqy nginx \
+ && apt-get install -qqy apache2-utils \
+ && htpasswd -dbc /etc/nginx/conf.d/kibana.htpasswd kibana_usr kibana_p
+
+ 
 ###############################################################################
 #                               CONFIGURATION
 ###############################################################################
 
 ### configure Elasticsearch
 
-ADD ./elasticsearch.yml ${ES_PATH_CONF}/elasticsearch.yml
+ADD ./elasticsearch.yml /etc/elasticsearch/elasticsearch.yml
+ADD ./elasticsearch-log4j2.properties /etc/elasticsearch/log4j2.properties
+ADD ./elasticsearch-jvm.options /etc/elasticsearch/jvm.options
 ADD ./elasticsearch-default /etc/default/elasticsearch
-RUN cp ${ES_HOME}/config/log4j2.properties ${ES_HOME}/config/jvm.options \
-    ${ES_PATH_CONF} \
- && chown -R elasticsearch:elasticsearch ${ES_PATH_CONF} \
- && chmod -R +r ${ES_PATH_CONF}
+RUN chmod -R +r /etc/elasticsearch
+
 
 ### configure Logstash
 
-# certs/keys for Beats and Lumberjack input
-RUN mkdir -p /etc/pki/tls/certs && mkdir /etc/pki/tls/private
-ADD ./logstash-beats.crt /etc/pki/tls/certs/logstash-beats.crt
-ADD ./logstash-beats.key /etc/pki/tls/private/logstash-beats.key
-
-# pipelines
-ADD pipelines.yml ${LOGSTASH_PATH_SETTINGS}/pipelines.yml
-
 # filters
+ADD ./10-input.conf /etc/logstash/conf.d/10-input.conf
+ADD ./20-filter.conf /etc/logstash/conf.d/20-filter.conf
+ADD ./30-output.conf /etc/logstash/conf.d/30-output.conf
+
 ADD ./02-beats-input.conf ${LOGSTASH_PATH_CONF}/conf.d/02-beats-input.conf
 ADD ./10-syslog.conf ${LOGSTASH_PATH_CONF}/conf.d/10-syslog.conf
 ADD ./11-nginx.conf ${LOGSTASH_PATH_CONF}/conf.d/11-nginx.conf
-ADD ./30-output.conf ${LOGSTASH_PATH_CONF}/conf.d/30-output.conf
-
-# patterns
-ADD ./nginx.pattern ${LOGSTASH_HOME}/patterns/nginx
-RUN chown -R logstash:logstash ${LOGSTASH_HOME}/patterns
 
 # Fix permissions
-RUN chmod -R +r ${LOGSTASH_PATH_CONF} ${LOGSTASH_PATH_SETTINGS} \
- && chown -R logstash:logstash ${LOGSTASH_PATH_SETTINGS}
+RUN chmod -R +r /etc/logstash
 
 ### configure logrotate
 
@@ -161,6 +148,11 @@ RUN chmod 644 /etc/logrotate.d/elasticsearch \
 ### configure Kibana
 
 ADD ./kibana.yml ${KIBANA_HOME}/config/kibana.yml
+
+
+### configure Nginx
+
+ADD ./nginx_kibana.conf /etc/nginx/conf.d/nginx_kibana.conf
 
 
 ###############################################################################
